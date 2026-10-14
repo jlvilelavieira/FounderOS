@@ -304,6 +304,33 @@ url_port() {
     printf '%s' "$port"
 }
 
+# PostgreSQL refuses to run initdb/postgres as root. Root-only Linux boxes
+# (containers, cloud VMs) run the cluster as an unprivileged OS user instead:
+# BUSINESSOS_PG_OS_USER, default "postgres" (created by the distro package).
+pg_as_owner() {
+    local pg_user="${BUSINESSOS_PG_OS_USER:-postgres}"
+    if [ "$(id -u)" -eq 0 ] && [ "$pg_user" != "$(id -un)" ]; then
+        if ! id "$pg_user" >/dev/null 2>&1; then
+            err "Running as root and OS user '$pg_user' does not exist; PostgreSQL cannot run as root."
+            err "Create it (useradd --system $pg_user) or set BUSINESSOS_PG_OS_USER."
+            return 1
+        fi
+        runuser -u "$pg_user" -- "$@"
+    else
+        "$@"
+    fi
+}
+
+# Hand the data dir and log file to the cluster's OS user when running as root.
+prepare_pg_paths_for_owner() {
+    local pg_user="${BUSINESSOS_PG_OS_USER:-postgres}" path
+    [ "$(id -u)" -eq 0 ] && [ "$pg_user" != "$(id -un)" ] || return 0
+    for path in "$@"; do
+        [ -e "$path" ] || touch "$path"
+        chown -R "$pg_user" "$path"
+    done
+}
+
 ensure_local_postgres() {
     local be_env="$ROOT/desktop/backend-go/.env"
     local database_url hostport host port database_name data_dir version pg_bin pg_ctl pg_isready psql initdb createdb
@@ -359,7 +386,9 @@ ensure_local_postgres() {
     if [ ! -f "$data_dir/PG_VERSION" ]; then
         info "Initializing isolated PostgreSQL data in $data_dir"
         mkdir -p "$data_dir"
-        "$initdb" -D "$data_dir" -U postgres -A trust --encoding=UTF8 --no-locale \
+        chmod 700 "$data_dir"
+        prepare_pg_paths_for_owner "$data_dir"
+        pg_as_owner "$initdb" -D "$data_dir" -U postgres -A trust --encoding=UTF8 --no-locale \
             >"$RUN_DIR/initdb.log" 2>&1
         ok "PostgreSQL data directory initialized"
     fi
@@ -372,7 +401,8 @@ ensure_local_postgres() {
 
     if ! "$pg_isready" -h "$host" -p "$port" -d postgres >/dev/null 2>&1; then
         info "Starting local PostgreSQL $version on :$port"
-        "$pg_ctl" -D "$data_dir" -l "$RUN_DIR/pgdev.log" -o "-p $port -k /tmp" start >/dev/null
+        prepare_pg_paths_for_owner "$RUN_DIR/pgdev.log"
+        pg_as_owner "$pg_ctl" -D "$data_dir" -l "$RUN_DIR/pgdev.log" -o "-p $port -k /tmp" start >/dev/null
         for _ in $(seq 1 30); do
             if "$pg_isready" -h "$host" -p "$port" -d postgres >/dev/null 2>&1; then
                 break
@@ -737,8 +767,8 @@ cmd_stop() {
     fi
     local data_dir="${BUSINESSOS_PGDATA:-$RUN_DIR/pgdata}" pg_bin
     if [ -f "$data_dir/PG_VERSION" ] && pg_bin=$(resolve_postgres_bin "$(cat "$data_dir/PG_VERSION")"); then
-        "$pg_bin/pg_ctl" -D "$data_dir" status >/dev/null 2>&1 && \
-            "$pg_bin/pg_ctl" -D "$data_dir" stop -m fast >/dev/null
+        pg_as_owner "$pg_bin/pg_ctl" -D "$data_dir" status >/dev/null 2>&1 && \
+            pg_as_owner "$pg_bin/pg_ctl" -D "$data_dir" stop -m fast >/dev/null
     fi
     pkill -f "$ROOT/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" 2>/dev/null || true
     pkill -f "electron-forge" 2>/dev/null || true
