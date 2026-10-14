@@ -10,6 +10,9 @@ RUN_DIR="$FIXTURE_ROOT/.run"
 FAKE_BIN="$TMP_ROOT/bin"
 FAKE_PGDATA="$RUN_DIR/pgdata"
 CALLS="$TMP_ROOT/calls"
+# The fake PostgreSQL tools live in a private temp dir; run them as the
+# current user even when the test itself runs as root.
+export BUSINESSOS_PG_OS_USER="$(id -un)"
 
 mkdir -p \
     "$FIXTURE_ROOT/desktop/backend-go" \

@@ -50,6 +50,10 @@ its current Postgres releases (17/18), so pair it with `postgresql@17`; on anoth
 Postgres, build pgvector for it, or point the launcher at a matching install
 with `BUSINESSOS_PG_BIN=/path/to/pg/bin`.
 
+On Debian/Ubuntu (including root-only VMs and containers), `make setup-linux
+ARGS=--deps` installs the pinned toolchains instead; see
+[docs/development/LINUX_DEV_ENV.md](docs/development/LINUX_DEV_ENV.md).
+
 Then:
 
 ```bash

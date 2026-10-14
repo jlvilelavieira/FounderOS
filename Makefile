@@ -31,6 +31,10 @@ onboard: ## First local source setup: initialize, start, and verify everything
 setup: ## First Docker setup: auto-generate secrets, pull images, start stack
 	@bash scripts/setup.sh
 
+.PHONY: setup-linux
+setup-linux: ## Debian/Ubuntu: install pinned toolchains for dev-local (ARGS="--dry-run" / "--deps")
+	@bash scripts/setup-linux-dev.sh $(ARGS)
+
 .PHONY: dev
 dev: ## Start all services (build if needed), follow logs
 	@docker compose up -d --build
